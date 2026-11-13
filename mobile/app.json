@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "FlowFix",
+    "slug": "flowfix",
+    "version": "0.1.0",
+    "scheme": "flowfix",
+    "web": { "bundler": "metro" }
+  }
+}
+
