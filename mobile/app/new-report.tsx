@@ -1,80 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { PhotoPreview } from '../src/components/PhotoPreview';
 import { prepareImage, type PreparedImage } from '../src/lib/image';
 import { prepareReportLocation, ReportClientError, submitReport, type ReportResult } from '../src/lib/reports';
 import type { Coordinates } from '../src/lib/location';
+import { theme } from '../src/theme';
 
 export default function NewReportScreen() {
-  const [image, setImage] = useState<PreparedImage | null>(null);
-  const [message, setMessage] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [uploadedPath, setUploadedPath] = useState<string | undefined>();
-  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
-  const [result, setResult] = useState<ReportResult | null>(null);
-
-  useEffect(() => () => {
-    if (image?.uri.startsWith('blob:')) URL.revokeObjectURL(image.uri);
-  }, [image]);
-
-  async function choosePhoto(useCamera: boolean) {
-    setMessage('');
-    setShowSettings(false);
-    const picked = useCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
-    if (picked.canceled) return;
-    try {
-      const prepared = await prepareImage(picked.assets[0]);
-      setImage((previous) => {
-        if (previous?.uri.startsWith('blob:')) URL.revokeObjectURL(previous.uri);
-        return prepared;
-      });
-      setUploadedPath(undefined); setResult(null);
-    }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Image preparation failed.'); }
-  }
-
-  async function submit() {
-    if (!image) { setMessage('Choose or capture a photo first.'); return; }
-    setBusy(true); setMessage(''); setShowSettings(false);
-    try {
-      const nextCoordinates = coordinates ?? await prepareReportLocation();
-      setCoordinates(nextCoordinates);
-      const submitted = await submitReport(image, nextCoordinates, uploadedPath);
-      setUploadedPath(submitted.imagePath);
-      setResult(submitted);
-      setMessage('Report submitted.');
-    } catch (error) {
-      const reportError = error instanceof ReportClientError ? error : null;
-      if (reportError?.imagePath) setUploadedPath(reportError.imagePath);
-      const text = error instanceof Error ? error.message : 'Submission failed.';
-      setShowSettings(text.startsWith('Location permission is required.'));
-      setMessage(text);
-    } finally { setBusy(false); }
-  }
-
-  return <ScrollView contentContainerStyle={{ padding: 24 }}>
-    <Text>New road-damage report</Text>
-    <View>
-      <Pressable onPress={() => choosePhoto(false)}><Text>Choose photo</Text></Pressable>
-      <Pressable onPress={() => choosePhoto(true)}><Text>Take photo</Text></Pressable>
-    </View>
+  const [image, setImage] = useState<PreparedImage | null>(null); const [message, setMessage] = useState(''); const [showSettings, setShowSettings] = useState(false); const [busy, setBusy] = useState(false); const [uploadedPath, setUploadedPath] = useState<string | undefined>(); const [coordinates, setCoordinates] = useState<Coordinates | null>(null); const [result, setResult] = useState<ReportResult | null>(null);
+  useEffect(() => () => { if (image?.uri.startsWith('blob:')) URL.revokeObjectURL(image.uri); }, [image]);
+  async function choosePhoto(useCamera: boolean) { setMessage(''); setShowSettings(false); const picked = useCamera ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }); if (picked.canceled) return; try { const prepared = await prepareImage(picked.assets[0]); setImage((previous) => { if (previous?.uri.startsWith('blob:')) URL.revokeObjectURL(previous.uri); return prepared; }); setUploadedPath(undefined); setResult(null); } catch (error) { setMessage(error instanceof Error ? error.message : 'Image preparation failed.'); } }
+  async function submit() { if (!image) { setMessage('Choose or capture a photo first.'); return; } setBusy(true); setMessage(''); setShowSettings(false); try { const nextCoordinates = coordinates ?? await prepareReportLocation(); setCoordinates(nextCoordinates); const submitted = await submitReport(image, nextCoordinates, uploadedPath); setUploadedPath(submitted.imagePath); setResult(submitted); setMessage('Report submitted.'); } catch (error) { const reportError = error instanceof ReportClientError ? error : null; if (reportError?.imagePath) setUploadedPath(reportError.imagePath); const text = error instanceof Error ? error.message : 'Submission failed.'; setShowSettings(text.startsWith('Location permission is required.')); setMessage(text); } finally { setBusy(false); } }
+  const messageIsError = !!message && message !== 'Report submitted.';
+  return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content}>
+    <Text style={styles.eyebrow}>FLOWFIX / FIELD REPORT</Text><Text style={styles.title}>New road-damage report</Text><Text style={styles.intro}>Capture one image and send a precise location report.</Text>
+    <View style={styles.actions}><Pressable style={styles.primaryButton} onPress={() => choosePhoto(false)}><Text style={styles.primaryText}>Choose photo</Text></Pressable><Pressable style={styles.secondaryButton} onPress={() => choosePhoto(true)}><Text style={styles.secondaryText}>Take photo</Text></Pressable></View>
     {image && <PhotoPreview image={image} onReselect={() => choosePhoto(false)} />}
-    <Pressable disabled={busy} onPress={submit}><Text>{busy ? 'Submitting...' : 'Capture GPS and submit'}</Text></Pressable>
-    {showSettings && <Pressable onPress={() => Linking.openSettings()}><Text>Open Settings to review permissions</Text></Pressable>}
-    {!!message && <Text>{message}</Text>}
-    {result && <View>
-      <Text>Result</Text>
-      <Text>Damage type: {result.damage_type}</Text>
-      <Text>Severity: {result.severity ?? 'unknown'}</Text>
-      <Text>Priority: {result.priority_score ?? 'unknown'} ({result.priority_band ?? 'unknown'})</Text>
-      <Text>Road type: {result.road_type}</Text>
-      {result.address_label && <Text>Address: {result.address_label}</Text>}
-      {result.needs_human_review && <Text>This result needs human review because AI confidence was low.</Text>}
-      <Text>This is an AI estimate, not an engineering assessment.</Text>
-    </View>}
-  </ScrollView>;
+    <Pressable style={[styles.submitButton, busy && styles.disabledButton]} disabled={busy} onPress={submit}><Text style={styles.primaryText}>{busy ? 'Submitting...' : 'Capture GPS and submit'}</Text></Pressable>
+    {showSettings && <Pressable style={styles.settingsButton} onPress={() => Linking.openSettings()}><Text style={styles.secondaryText}>Open Settings to review permissions</Text></Pressable>}
+    {!!message && <Text style={[styles.message, messageIsError && styles.errorText]}>{message}</Text>}
+    {result && <View style={styles.result}><Text style={styles.eyebrow}>RESULT</Text><View style={styles.scoreRow}><Text style={styles.score}>{result.priority_score ?? '—'}</Text><View><Text style={styles.band}>{result.priority_band ?? 'unknown'}</Text><Text style={styles.muted}>priority score</Text></View></View><Text style={styles.resultLine}><Text style={styles.label}>Damage type</Text>{result.damage_type}</Text><Text style={styles.resultLine}><Text style={styles.label}>Severity</Text>{result.severity ?? 'unknown'}</Text><Text style={styles.resultLine}><Text style={styles.label}>Priority</Text>{result.priority_score ?? 'unknown'} ({result.priority_band ?? 'unknown'})</Text><Text style={styles.resultLine}><Text style={styles.label}>Road type</Text>{result.road_type}</Text>{result.address_label && <Text style={styles.resultLine}><Text style={styles.label}>Address</Text>{result.address_label}</Text>}{result.needs_human_review && <Text style={styles.reviewText}>This result needs human review because AI confidence was low.</Text>}<Text style={styles.disclaimer}>This is an AI estimate, not an engineering assessment.</Text></View>}
+  </ScrollView></SafeAreaView>;
 }
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: theme.bg }, content: { padding: 24, paddingBottom: 40, gap: 16 }, eyebrow: { color: theme.muted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5 }, title: { color: theme.strong, fontSize: 32, fontWeight: '600', letterSpacing: -1, marginTop: 2 }, intro: { color: theme.muted, fontSize: 15, lineHeight: 22, marginBottom: 8 }, actions: { gap: 12 },
+  primaryButton: { minHeight: 48, borderRadius: theme.radiusButton, backgroundColor: theme.strong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }, primaryText: { color: theme.bg, fontSize: 15, fontWeight: '600' }, secondaryButton: { minHeight: 48, borderRadius: theme.radiusButton, borderWidth: 1, borderColor: theme.secondaryBorder, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }, secondaryText: { color: theme.strong, fontSize: 15, fontWeight: '500' }, submitButton: { minHeight: 52, borderRadius: theme.radiusButton, backgroundColor: theme.strong, alignItems: 'center', justifyContent: 'center', marginTop: 4 }, disabledButton: { backgroundColor: theme.disabled }, settingsButton: { minHeight: 44, borderWidth: 1, borderColor: theme.secondaryBorder, borderRadius: theme.radiusButton, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, message: { color: theme.text, backgroundColor: theme.raised, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radiusCard, padding: 14, lineHeight: 20 }, errorText: { color: theme.urgent, borderColor: theme.urgent },
+  result: { backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1, borderRadius: theme.radiusCard, padding: 20, gap: 12, marginTop: 8 }, scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 }, score: { color: theme.strong, fontSize: 56, fontWeight: '600', fontVariant: ['tabular-nums'] }, band: { color: theme.strong, fontSize: 18, fontWeight: '600', textTransform: 'uppercase' }, muted: { color: theme.muted, fontSize: 12, marginTop: 3 }, resultLine: { color: theme.text, fontSize: 15, lineHeight: 22 }, label: { color: theme.muted, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', marginRight: 8 }, reviewText: { color: theme.text, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12, lineHeight: 20 }, disclaimer: { color: theme.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+});

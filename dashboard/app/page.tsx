@@ -16,7 +16,7 @@ export default function DashboardPage() {
   const counts: Record<string, number> = useMemo(() => Object.fromEntries(bands.map((band) => [band, reports.filter((report) => report.priority_band === band).length])), [reports]);
   return <main className="shell">
     <header className="header"><div><div className="eyebrow">FlowFix municipal view</div><h1>Road damage priority map</h1><p className="muted">Public reports from the safe <code>public_reports</code> view.</p></div><button onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh now'}</button></header>
-    <section className="summary" aria-label="Priority summary">{bands.map((band) => <div className="summary-card" style={{ '--band': band === 'urgent' ? '#dc2626' : band === 'high' ? '#f97316' : band === 'medium' ? '#eab308' : '#22c55e' } as Record<string, string>} key={band}><span>{band}</span><strong>{counts[band] ?? 0}</strong></div>)}</section>
+    <section className="summary" aria-label="Priority summary">{bands.map((band) => <div className="summary-card" data-band={band} key={band}><span>{band}</span><strong>{counts[band] ?? 0}</strong></div>)}</section>
     {loading && reports.length === 0 && <p>Loading reports...</p>}
     {error && <div className="error"><strong>Could not load reports.</strong><p>{error}</p><button onClick={() => void load()}>Retry</button></div>}
     {!loading && !error && reports.length === 0 && <p>No public reports are available yet.</p>}

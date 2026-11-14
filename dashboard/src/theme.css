@@ -1,0 +1,7 @@
+:root {
+  color-scheme: dark;
+  --bg: #0A0A0A; --surface: #111111; --raised: #181818; --border: #262626;
+  --text: #EDEDED; --text-strong: #FFFFFF; --muted: #8A8A8A; --disabled: #4A4A4A;
+  --secondary-border: #333333; --urgent: #E8503A; --focus: #FFFFFF; --attribution-bg: rgba(10, 10, 10, .94);
+  --radius-card: 10px; --radius-button: 8px;
+}
