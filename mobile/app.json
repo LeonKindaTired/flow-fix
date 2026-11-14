@@ -4,7 +4,33 @@
     "slug": "flowfix",
     "version": "0.1.0",
     "scheme": "flowfix",
-    "web": { "bundler": "metro" }
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        { "photosPermission": "Allow FlowFix to select road-damage photos." }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow FlowFix to capture the report location."
+        }
+      ]
+    ],
+    "ios": {
+      "infoPlist": {
+        "NSCameraUsageDescription": "FlowFix uses the camera to capture road-damage photos."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    }
   }
 }
-

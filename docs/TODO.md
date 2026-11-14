@@ -32,18 +32,20 @@
 
 ### F-002 [P0] Configure Supabase schema, auth, RLS, Storage and public view
 
+**Status:** Complete. Verified against the live Supabase project by the user on 2026-11-14: `scripts/rls-smoke.ps1` passed and an equivalent SQL-editor test ended with `ALL TESTS PASSED`. The agent could not run `supabase test db` because Docker was inaccessible to its process.
+
 - **Description:** Create initial migration with PostGIS, `reports`, `report_confirmations`, `geocode_cache`, RPCs, safe dashboard view, anonymous Auth assumptions, and private Storage policies.
 - **Files:** `supabase/migrations/001_initial_schema.sql`, `supabase/config.toml`, `scripts/rls-smoke.sh`, `docs/PROJECT_STRUCTURE.md`.
 - **Dependencies:** F-001.
 - **Acceptance criteria:**
   - Migration enables PostGIS and creates all three tables.
   - `reports.location` has a GiST index.
-  - `find_nearby_report` uses `ST_DWithin` and returns candidate ID/distance.
+- `find_nearby_report(p_lat, p_lon, p_radius_m, p_damage_type, p_exclude_id default null)` uses `ST_DWithin`, excludes the requested ID and seeded demo rows, rejects `unknown` damage type, and returns candidate ID/distance.
   - `add_report_corroboration` inserts a unique confirmation, increments count only once, and returns the updated original in one transaction. It changes nothing when the corroborating reporter is the original report's own reporter.
   - `public_reports` exposes only approved safe columns and only rows with status `ready` or `needs_review` (no duplicate or failed rows); anon can select the view but cannot select base `reports`, `report_confirmations` or `geocode_cache`.
   - RLS lets an authenticated (anonymous-auth) user select only their own `reports` rows (`reporter_id = auth.uid()`); clients cannot insert, update or delete `reports`.
   - Anonymous Auth is enabled/documented.
-  - Private Storage bucket policy allows authenticated users to upload only under their own `{auth.uid()}/` folder; no public bucket.
+- Private Storage bucket policy allows authenticated users to upload only under their own `{auth.uid()}/` folder with the approved image MIME types and 5 MB limit; uploads use `upsert=false`; no public bucket.
   - Constraints reject invalid coordinates, severity, and priority scores.
   - `scripts/rls-smoke.sh` exists and passes against the live project (see `docs/VALIDATION.md`).
 
@@ -96,6 +98,7 @@
 - **Description:** Generate TypeScript DB types from Supabase and add runtime schemas for create-report and vision JSON. Avoid hand-maintaining the same DB row type in three apps.
 - **Files:** `mobile/src/types/database.types.ts`, `dashboard/src/types/database.types.ts` or shared generated output, `supabase/functions/_shared/schemas.ts`, package scripts.
 - **Dependencies:** F-002.
+- **Operator command:** After authenticating locally, run `supabase gen types typescript --linked > supabase/types/database.types.ts`; replace the provisional migration-derived file and rerun type checks. The agent must not run this against the remote project.
 - **Acceptance criteria:**
   - Types are generated using `supabase gen types typescript`.
   - Mobile and dashboard consume generated DB types or a single committed generated file.
@@ -126,13 +129,14 @@
 
 ### F-104 [P0] Configure anonymous Supabase Auth and private photo upload
 
-- **Description:** Sign in anonymously on first launch and upload to the private bucket under the current auth UUID.
+- **Description:** Sign in anonymously on first launch and upload to the private bucket under the current auth UUID. The migration permits nullable `reporter_id` only for `seeded_demo` rows.
 - **Files:** `mobile/src/lib/supabase.ts`, `mobile/src/lib/reports.ts`, `supabase/migrations/001_initial_schema.sql`.
 - **Dependencies:** F-002, F-003, F-102.
 - **Acceptance criteria:**
   - A session exists before upload.
   - Storage path starts with the current `auth.uid()`.
   - Upload returns an object path, not a public URL.
+  - Upload uses `upsert=false` and the bucket enforces a 5 MB image limit with JPEG/PNG/WebP MIME types.
   - User cannot upload into another user's folder.
   - Service-role key is absent from app bundle.
   - Upload works on both code paths: native (file read as ArrayBuffer, for example from base64) and web (Blob/File). Test each separately.

@@ -120,7 +120,7 @@ Use UUID primary keys and UTC `timestamptz`. Enable PostGIS. Store location as `
 | `id`                   | `uuid`                  | Primary key                                                              |
 | `created_at`           | `timestamptz`           | Default `now()`                                                          |
 | `updated_at`           | `timestamptz`           | Updated on processing/re-score                                           |
-| `reporter_id`          | `uuid`                  | `auth.users.id`; anonymous-auth user                                     |
+| `reporter_id`          | `uuid`                  | Nullable for `seeded_demo`; otherwise `auth.users.id`                   |
 | `status`               | `text`                  | `uploaded`, `processing`, `ready`, `failed`, `needs_review`, `duplicate` |
 | `image_path`           | `text`                  | Private Storage object path; never in public view                        |
 | `location`             | `geography(Point,4326)` | Required report point                                                    |
@@ -170,7 +170,7 @@ Add a unique constraint on `(original_report_id, reporter_id)` so one account ca
 
 - Enable `postgis`.
 - Add GiST index on `reports.location`; indexes on `reports(status)`, `reports(priority_score desc)`, and `reports(created_at desc)`.
-- Create SQL RPC `find_nearby_report(p_lat, p_lon, p_radius_m, p_damage_type)` using `ST_DWithin(location, ST_SetSRID(ST_MakePoint(lon,lat),4326)::geography, radius)` and compatible damage type. Return nearest candidate ID and distance.
+- Create SQL RPC `find_nearby_report(p_lat, p_lon, p_radius_m, p_damage_type, p_exclude_id default null)` using `ST_DWithin(location, ST_SetSRID(ST_MakePoint(lon,lat),4326)::geography, radius)` and compatible non-`unknown` damage type. Exclude `p_exclude_id` and `source='seeded_demo'`; return nearest candidate ID and distance.
 - Create transactional RPC `add_report_corroboration(p_original_report_id, p_corroborating_report_id, p_reporter_id)`: return without changes if `p_reporter_id` equals the original report's `reporter_id`; otherwise insert into `report_confirmations` with `ON CONFLICT DO NOTHING`; only if inserted, increment `corroboration_count`, then return the updated original. Re-score that original in the Edge Function using the same score function.
 - Create `public_reports` view restricted to rows whose `status` is `ready` or `needs_review` (duplicate and failed rows never reach the map), with only safe fields: ID, created time, latitude, longitude, address label, road type, damage type, severity, priority score/band, corroboration count, status, and source. Exclude `image_path`, `reporter_id`, `processing_error`, confidence, and private details. Grant `SELECT` to `anon`; revoke anon access to `reports` and `report_confirmations`. Use a tightly scoped view and test its actual privileges/RLS behavior.
 - Enable anonymous sign-in in Supabase Auth.
@@ -227,7 +227,7 @@ A single severity-5 report on a residential street scores 72 (high). Urgent need
 
 `POST /storage/v1/object/report-photos/{auth.uid}/{filename}`
 
-- Binary JPEG/PNG/WebP, compressed to ≤2 MB where practical.
+- Binary JPEG/PNG/WebP, compressed to ≤2 MB where practical. Upload with `upsert=false` so retries do not overwrite an existing object.
 - Client must have an anonymous authenticated session.
 - Storage policy checks the first path segment against `auth.uid()`.
 
