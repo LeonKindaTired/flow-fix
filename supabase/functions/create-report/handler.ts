@@ -26,7 +26,7 @@ export type CreateReportDeps = {
 };
 
 const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const defaultOrigins = ['http://localhost:3000', 'http://localhost:8081', 'http://localhost:19006'];
+const defaultOrigins = ['https://flow-fix-five.vercel.app', 'http://localhost:3000', 'http://localhost:8081', 'http://localhost:19006'];
 function origins(value?: string): string[] { return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean).concat(defaultOrigins); }
 function headers(origin: string | null, allowed: string[]): HeadersInit { const result: Record<string, string> = { 'Content-Type': 'application/json' }; if (origin && allowed.includes(origin)) result['Access-Control-Allow-Origin'] = origin; result['Access-Control-Allow-Headers'] = 'authorization, x-client-info, apikey, content-type'; result['Access-Control-Allow-Methods'] = 'POST, OPTIONS'; return result; }
 function json(data: unknown, status: number, origin: string | null, allowed: string[]) { return new Response(JSON.stringify(data), { status, headers: headers(origin, allowed) }); }
