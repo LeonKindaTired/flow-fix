@@ -37,7 +37,12 @@ function cacheKey(latitude: number, longitude: number): string { return `${round
 
 export async function reverseGeocode(latitude: number, longitude: number, cache: GeocodeCache, options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {}): Promise<GeocodeResult> {
   const lat = rounded(latitude); const lon = rounded(longitude); const key = cacheKey(lat, lon);
-  const cached = await cache.get(key);
+  let cached: { address_label: string | null; road_type: string } | null = null;
+  try {
+    cached = await cache.get(key);
+  } catch {
+    console.error('GEOCODE_CACHE_READ_FAILED');
+  }
   if (cached) return { cacheKey: key, addressLabel: cached.address_label, roadType: cached.road_type || 'unknown', source: 'cache' };
   const readEnv = (name: string) => options.env?.[name] ?? Deno.env.get(name);
   const contact = readEnv('APP_CONTACT') ?? 'flowfix-development-contact';
@@ -55,10 +60,24 @@ export async function reverseGeocode(latitude: number, longitude: number, cache:
   finally { clearTimeout(timer); }
   if (response.status === 429) return { cacheKey: key, addressLabel: null, roadType: 'unknown', source: 'fallback', errorCode: 'GEOCODE_RATE_LIMITED' };
   if (!response.ok) return { cacheKey: key, addressLabel: null, roadType: 'unknown', source: 'fallback', errorCode: 'GEOCODE_PROVIDER_ERROR' };
-  const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+  let payload: Record<string, unknown> | null;
+  try {
+    const parsed: unknown = await response.json();
+    payload = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return { cacheKey: key, addressLabel: null, roadType: 'unknown', source: 'fallback', errorCode: 'GEOCODE_PROVIDER_ERROR' };
+  }
+  if (!payload || Object.keys(payload).length === 0 || Object.prototype.hasOwnProperty.call(payload, 'error')) {
+    return { cacheKey: key, addressLabel: null, roadType: 'unknown', source: 'fallback', errorCode: 'GEOCODE_PROVIDER_ERROR' };
+  }
   const addressLabel = typeof payload?.display_name === 'string' ? payload.display_name : null;
   const isHighway = payload?.category === 'highway' || payload?.class === 'highway';
   const roadType = isHighway && typeof payload?.type === 'string' && payload.type.length > 0 ? payload.type : 'unknown';
-  await cache.upsert({ cache_key: key, latitude_rounded: lat, longitude_rounded: lon, address_label: addressLabel, road_type: roadType, fetched_at: new Date().toISOString() });
-  return { cacheKey: key, addressLabel, roadType, source: 'nominatim' };
+  const result: GeocodeResult = { cacheKey: key, addressLabel, roadType, source: 'nominatim' };
+  try {
+    await cache.upsert({ cache_key: key, latitude_rounded: lat, longitude_rounded: lon, address_label: addressLabel, road_type: roadType, fetched_at: new Date().toISOString() });
+  } catch {
+    console.error('GEOCODE_CACHE_WRITE_FAILED');
+  }
+  return result;
 }

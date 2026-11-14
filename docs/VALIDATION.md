@@ -76,6 +76,8 @@ Required tests:
 | S-18 | Original reporter submits a compatible duplicate of their own report | Corroboration RPC changes nothing; count and score stay the same                                                                                              |
 | S-19 | Band boundaries                                                      | 34 is low, 35 is medium, 54 is medium, 55 is high, 74 is high, 75 is urgent                                                                                   |
 
+S-09, S-13, S-14, and S-18 are verified at the database level by the user's SQL test and in the F-109 integration tests. They are not scoring-only cases and are therefore not asserted as database behavior by `scoring.test.ts`.
+
 Example assertions:
 
 ```ts
