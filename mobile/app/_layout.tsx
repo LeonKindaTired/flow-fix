@@ -14,5 +14,5 @@ export default function Layout() {
       document.body.style.color = theme.text;
     }
   }, []);
-  return <Stack />;
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.bg } }} />;
 }
