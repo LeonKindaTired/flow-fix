@@ -340,7 +340,10 @@ Example row:
 | `SUPABASE_URL`                       | Project URL (usually injected)                             |
 | `SUPABASE_SERVICE_ROLE_KEY`          | Server-side only                                           |
 | `VISION_API_KEY`                     | Server-side vision API key                                 |
+| `VISION_PROVIDER`                    | Configurable provider adapter, e.g. `gemini` or `openai`  |
 | `VISION_MODEL`                       | Exact tested vision model ID                               |
+| `VISION_TIMEOUT_MS`                  | Short vision request timeout, default `8000`               |
+| `DEMO_MODE`                          | Explicitly enables labelled deterministic fallback         |
 | `NOMINATIM_BASE_URL`                 | `https://nominatim.openstreetmap.org`                      |
 | `APP_CONTACT`                        | Identifying contact string for Nominatim requests          |
 | `DUPLICATE_RADIUS_METERS`            | Default `20`                                               |
