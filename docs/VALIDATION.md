@@ -367,3 +367,7 @@ Do not call the MVP demo-ready until all P0 items pass:
 - [ ] `scripts/rls-smoke.sh` passes against the live project.
 - [ ] End-to-end smoke test passes.
 - [ ] Living Labs claims are backed by timestamped real evidence.
+
+### F-110 timed mobile flow
+
+The result flow uses one submission screen: open app, tap `Create a road-damage report`, tap `Choose photo` or `Take photo`, then tap `Capture GPS and submit`—three user taps before the result. Permission prompts are system interactions. The submit button is disabled while in flight, and retries reuse the existing Storage `image_path` without uploading again.
