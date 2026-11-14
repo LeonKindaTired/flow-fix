@@ -23,6 +23,10 @@ export class ReportClientError extends Error {
   constructor(public readonly code: string, message: string, public imagePath?: string) { super(message); }
 }
 
+function detail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function errorMessage(code: string): string {
   switch (code) {
     case 'REPORT_RATE_LIMITED': case 'RATE_LIMIT': return 'Too many reports in the last hour. Please try again later.';
@@ -60,10 +64,14 @@ async function uploadBody(image: PreparedImage): Promise<Blob | ArrayBuffer> {
 }
 
 export async function uploadReportPhoto(image: PreparedImage): Promise<string> {
-  const session = await ensureAnonymousSession();
+  let session;
+  try { session = await ensureAnonymousSession(); }
+  catch (error) { throw new Error(`Sign-in failed: ${detail(error)}`); }
   const extension = image.mimeType.split('/')[1] === 'jpeg' ? 'jpg' : image.mimeType.split('/')[1];
   const path = `${session.user.id}/${Crypto.randomUUID()}.${extension}`;
-  const body = await uploadBody(image);
+  let body: Blob | ArrayBuffer;
+  try { body = await uploadBody(image); }
+  catch (error) { throw new Error(`Image read failed: ${detail(error)}`); }
   const result = await supabase.storage.from('report-photos').upload(path, body, {
     contentType: image.mimeType,
     upsert: false,
@@ -73,14 +81,16 @@ export async function uploadReportPhoto(image: PreparedImage): Promise<string> {
 }
 
 export async function submitReport(image: PreparedImage, coordinates: Coordinates, existingImagePath?: string): Promise<ReportResult & { imagePath: string }> {
-  const session = await ensureAnonymousSession();
+  let session;
+  try { session = await ensureAnonymousSession(); }
+  catch (error) { throw new ReportClientError('AUTH_ERROR', `Sign-in failed: ${detail(error)}`); }
   let imagePath = existingImagePath;
   if (!imagePath) {
     try { imagePath = await uploadReportPhoto(image); }
     catch (error) {
       const text = error instanceof Error ? error.message : '';
-      const code = /5 MB|unsupported|image/i.test(text) ? 'INVALID_IMAGE' : 'NETWORK_ERROR';
-      throw new ReportClientError(code, errorMessage(code));
+      const code = /5 MB|unsupported|image/i.test(text) ? 'INVALID_IMAGE' : 'UPLOAD_ERROR';
+      throw new ReportClientError(code, text || errorMessage(code));
     }
   }
   try {
@@ -89,19 +99,19 @@ export async function submitReport(image: PreparedImage, coordinates: Coordinate
       headers: { apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '', Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_path: imagePath, latitude: coordinates.latitude, longitude: coordinates.longitude, location_source: 'gps' }),
     });
-    const payload = await response.json().catch(() => null) as { error?: { code?: string } } & Partial<ReportResult>;
+    const payload = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } & Partial<ReportResult>;
     if (!response.ok || payload.error) {
-      const code = payload.error?.code ?? 'NETWORK_ERROR';
-      throw new ReportClientError(code, errorMessage(code), imagePath);
+      const code = payload.error?.code ?? `HTTP_${response.status}`;
+      throw new ReportClientError(code, payload.error?.message ?? `Report service returned HTTP ${response.status}.`, imagePath);
     }
     if (!payload.report_id) throw new ReportClientError('NETWORK_ERROR', 'The report response was incomplete. Retry this same upload.', imagePath);
     const own: any = await supabase.from('reports').select('id,status,damage_type,severity,confidence,road_type,address_label,priority_score,priority_band,corroboration_count,needs_human_review,duplicate_of').eq('id', payload.report_id).single();
-    if (own.error || !own.data) throw new ReportClientError('NETWORK_ERROR', 'The report was submitted but could not be read back. Retry this same upload.', imagePath);
+    if (own.error || !own.data) throw new ReportClientError('DATABASE_READ_ERROR', `Report was created but could not be read back: ${own.error?.message ?? 'no row returned'}`, imagePath);
     const ownData = own.data as unknown as ReportResult;
     return { ...ownData, report_id: ownData.report_id ?? payload.report_id, imagePath };
   } catch (error) {
     if (error instanceof ReportClientError) throw error;
-    throw new ReportClientError('NETWORK_ERROR', errorMessage('NETWORK_ERROR'), imagePath);
+    throw new ReportClientError('REQUEST_ERROR', `Could not reach the report service: ${detail(error)}`, imagePath);
   }
 }
 
