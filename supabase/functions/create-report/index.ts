@@ -4,9 +4,10 @@ import { findNearbyReport } from '../_shared/duplicate.ts';
 import { addReportCorroboration } from '../_shared/corroboration.ts';
 import { reverseGeocode, createSupabaseGeocodeCache } from '../_shared/osm.ts';
 import { analyzeImage } from '../_shared/vision.ts';
+import { readNumber, readString } from '../_shared/config.ts';
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL');
-const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const supabaseUrl = readString('SUPABASE_URL');
+const serviceRoleKey = readString('SUPABASE_SERVICE_ROLE_KEY');
 if (!supabaseUrl || !serviceRoleKey) throw new Error('Supabase function configuration is incomplete.');
 const service = createClient(supabaseUrl, serviceRoleKey);
 const maxBytes = 5 * 1024 * 1024;
@@ -67,11 +68,11 @@ const handler = createReportHandler({
   async nearby(input) { return findNearbyReport(service, input); },
   async corroborate(input) { return addReportCorroboration(service, input); },
 }, {
-  allowedOrigins: Deno.env.get('ALLOWED_ORIGINS'),
-  maxReportsPerHour: Number(Deno.env.get('MAX_REPORTS_PER_HOUR') ?? 20),
-  duplicateRadiusM: Number(Deno.env.get('DUPLICATE_RADIUS_METERS') ?? 20),
-  reviewThreshold: Number(Deno.env.get('VISION_CONFIDENCE_REVIEW_THRESHOLD') ?? 0.60),
-  enableCorroboration: Deno.env.get('ENABLE_CORROBORATION') !== 'false',
+  allowedOrigins: readString('ALLOWED_ORIGINS'),
+  maxReportsPerHour: readNumber('MAX_REPORTS_PER_HOUR', 20, { min: 1 }),
+  duplicateRadiusM: readNumber('DUPLICATE_RADIUS_METERS', 20, { min: 1 }),
+  reviewThreshold: readNumber('VISION_CONFIDENCE_REVIEW_THRESHOLD', 0.60, { min: 0.0001 }),
+  enableCorroboration: readString('ENABLE_CORROBORATION', 'true') !== 'false',
 });
 
 if (import.meta.main) Deno.serve(handler);

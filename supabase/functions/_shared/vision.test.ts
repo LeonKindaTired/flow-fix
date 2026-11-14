@@ -30,6 +30,17 @@ Deno.test('vision maps timeout', async () => {
   const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => await new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError'))));
   await expectCode(() => analyzeImage(image, 'image/jpeg', { env: { ...env, VISION_TIMEOUT_MS: '1' }, fetchImpl }), 'VISION_TIMEOUT');
 });
+Deno.test('vision empty model or key returns configuration error without values', async () => {
+  const messages: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { messages.push(args.join(' ')); };
+  try {
+    await expectCode(() => analyzeImage(image, 'image/jpeg', { env: { ...env, VISION_MODEL: '  ' } }), 'VISION_CONFIGURATION');
+    await expectCode(() => analyzeImage(image, 'image/jpeg', { env: { ...env, VISION_API_KEY: '' } }), 'VISION_CONFIGURATION');
+  } finally { console.error = original; }
+  if (messages.some((message) => message.includes('test-key') || message.includes('test-model'))) throw new Error('configuration logging exposed a value');
+  if (!messages.some((message) => message.includes('VISION_MODEL')) || !messages.some((message) => message.includes('VISION_API_KEY'))) throw new Error('configuration variable name was not logged');
+});
 Deno.test('vision demo fallback is explicitly labelled', async () => {
   const result = await analyzeImage(image, 'image/jpeg', { env: { ...env, DEMO_MODE: 'true' }, fetchImpl: async () => response({}, 500) });
   if (result.source !== 'DEMO_RESULT' || !result.summary.startsWith('DEMO_RESULT:')) throw new Error('Fallback was not labelled.');

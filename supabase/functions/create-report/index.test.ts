@@ -16,7 +16,7 @@ function base(overrides: Partial<CreateReportDeps> = {}): CreateReportDeps {
     updateReport: async (id, fields) => { reports.set(id, { ...(reports.get(id) ?? { id }), ...fields }); },
     getReport: async (id) => reports.get(id) ?? { id, severity: 4, road_type: 'residential', confidence: .9, corroboration_count: 0, priority_score: 56, priority_band: 'high' },
     vision: async () => ({ damage_type: 'pothole', severity: 4, confidence: .9, summary: 'pothole', source: 'live_ai' }),
-    geocode: async () => ({ cacheKey: 'x', addressLabel: 'Road', roadType: 'residential', source: 'nominatim' }),
+    geocode: async () => ({ cacheKey: 'x', addressLabel: 'Road', roadType: 'residential', source: 'nominatim', status: 'ok' as const }),
     nearby: async () => null,
     corroborate: async () => ({ original_report_id: 'original', corroboration_count: 1, priority_score: 60, priority_band: 'high', inserted: true }),
     ...overrides,
@@ -44,6 +44,11 @@ Deno.test('F-109 unique insert violation applies idempotency rules', async () =>
   if (result.report_id !== 'winner' || result.status !== 'ready' || visionCalled) throw new Error('unique conflict did not return the existing report');
 });
 Deno.test('F-109 enforces hourly rate limit', async () => { const response = await createReportHandler(base({ countRecent: async () => 20 }))(request({ image_path: imagePath, latitude: 1, longitude: 2, location_source: 'gps' })); if ((await body(response)).error.code !== 'REPORT_RATE_LIMITED') throw new Error('rate limit failed'); });
+Deno.test('F-109 fresh reporter is accepted while another reporter is over limit', async () => {
+  let countedReporter = '';
+  const response = await createReportHandler(base({ countRecent: async (reporter) => { countedReporter = reporter; return reporter === user ? 0 : 25; } }))(request({ image_path: imagePath, latitude: 1, longitude: 2, location_source: 'gps' }));
+  if ((await body(response)).status !== 'ready' || countedReporter !== user) throw new Error('fresh reporter was incorrectly rate limited');
+});
 Deno.test('F-109 counts concurrent processing rows toward the rate limit', async () => {
   const processingRows = Array.from({ length: 25 }, (_, index) => ({ id: `processing-${index}`, status: 'processing' }));
   let visionCalled = false;

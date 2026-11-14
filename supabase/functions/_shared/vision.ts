@@ -1,4 +1,5 @@
 import { parseVisionResult, type VisionResult } from './schemas.ts';
+import { readNumber, readString, type Environment } from './config.ts';
 
 export type VisionErrorCode = 'VISION_CONFIGURATION' | 'VISION_TIMEOUT' | 'VISION_RATE_LIMITED' | 'VISION_PROVIDER_ERROR' | 'VISION_INVALID_RESPONSE';
 export class VisionAdapterError extends Error { constructor(public readonly code: VisionErrorCode, message: string) { super(message); } }
@@ -24,17 +25,16 @@ function jsonText(text: string): unknown {
   if (!candidate.startsWith('{') || !candidate.endsWith('}')) throw new VisionAdapterError('VISION_INVALID_RESPONSE', 'Provider returned prose instead of a JSON object.');
   try { return JSON.parse(candidate); } catch { throw new VisionAdapterError('VISION_INVALID_RESPONSE', 'Provider returned malformed JSON.'); }
 }
-export async function analyzeImage(image: ArrayBuffer | Blob, mimeType: string, options: { fetchImpl?: FetchLike; env?: Record<string, string | undefined> } = {}): Promise<VisionOutput> {
+export async function analyzeImage(image: ArrayBuffer | Blob, mimeType: string, options: { fetchImpl?: FetchLike; env?: Environment } = {}): Promise<VisionOutput> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const readEnv = (name: string) => options.env?.[name] ?? Deno.env.get(name);
-  const demoMode = readEnv('DEMO_MODE') === 'true';
-  const provider = (readEnv('VISION_PROVIDER') ?? 'gemini').toLowerCase();
-  const model = readEnv('VISION_MODEL');
-  const apiKey = readEnv('VISION_API_KEY');
-  const configuredTimeout = Number(readEnv('VISION_TIMEOUT_MS') ?? 8000);
-  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 8000;
+  const demoMode = readString('DEMO_MODE', undefined, options.env) === 'true';
+  const provider = (readString('VISION_PROVIDER', 'gemini', options.env) ?? 'gemini').toLowerCase();
+  const model = readString('VISION_MODEL', undefined, options.env);
+  const apiKey = readString('VISION_API_KEY', undefined, options.env);
+  const timeoutMs = readNumber('VISION_TIMEOUT_MS', 8000, { min: 1 }, options.env);
   if (!model || !apiKey) {
-    if (demoMode) return demoResult();
+    const missing = [!model ? 'VISION_MODEL' : '', !apiKey ? 'VISION_API_KEY' : ''].filter(Boolean).join(',');
+    console.error('VISION_CONFIGURATION_MISSING', missing);
     throw new VisionAdapterError('VISION_CONFIGURATION', 'VISION_MODEL and VISION_API_KEY are required.');
   }
   try {

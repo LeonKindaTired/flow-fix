@@ -6,7 +6,7 @@ import type { VisionOutput } from '../_shared/vision.ts';
 import type { GeocodeResult } from '../_shared/osm.ts';
 
 export class ApiError extends Error { constructor(public readonly code: string, message: string, public readonly status = 400) { super(message); } }
-export type ExistingReport = { id: string; status: string; attempts?: number; created_at?: string; updated_at?: string; duplicate_of?: string | null; damage_type?: string; severity?: number | null; confidence?: number | null; road_type?: string; priority_score?: number | null; priority_band?: string | null; corroboration_count?: number };
+export type ExistingReport = { id: string; status: string; attempts?: number; geocode_status?: 'ok' | 'cached' | 'failed'; geocode_error?: string | null; created_at?: string; updated_at?: string; duplicate_of?: string | null; damage_type?: string; severity?: number | null; confidence?: number | null; road_type?: string; priority_score?: number | null; priority_band?: string | null; corroboration_count?: number };
 export class InsertConflictError extends Error { constructor(public readonly existing: ExistingReport) { super('report already exists'); this.name = 'InsertConflictError'; } }
 type ImageMetadata = { mimeType: string; size: number; bytes: ArrayBuffer };
 export type CreateReportDeps = {
@@ -31,7 +31,7 @@ function origins(value?: string): string[] { return (value ?? '').split(',').map
 function headers(origin: string | null, allowed: string[]): HeadersInit { const result: Record<string, string> = { 'Content-Type': 'application/json' }; if (origin && allowed.includes(origin)) result['Access-Control-Allow-Origin'] = origin; result['Access-Control-Allow-Headers'] = 'authorization, x-client-info, apikey, content-type'; result['Access-Control-Allow-Methods'] = 'POST, OPTIONS'; return result; }
 function json(data: unknown, status: number, origin: string | null, allowed: string[]) { return new Response(JSON.stringify(data), { status, headers: headers(origin, allowed) }); }
 function publicError(error: unknown): ApiError { return error instanceof ApiError ? error : new ApiError('INTERNAL_ERROR', 'Report processing failed.', 500); }
-function existingResponse(report: ExistingReport) { return { report_id: report.id, status: report.status, damage_type: report.damage_type ?? 'unknown', severity: report.severity ?? null, confidence: report.confidence ?? null, road_type: report.road_type ?? 'unknown', priority_score: report.priority_score ?? null, priority_band: report.priority_band ?? null, corroboration_count: report.corroboration_count ?? 0, needs_human_review: false }; }
+function existingResponse(report: ExistingReport) { return { report_id: report.id, status: report.status, damage_type: report.damage_type ?? 'unknown', severity: report.severity ?? null, confidence: report.confidence ?? null, road_type: report.road_type ?? 'unknown', priority_score: report.priority_score ?? null, priority_band: report.priority_band ?? null, corroboration_count: report.corroboration_count ?? 0, needs_human_review: false, geocode_status: report.geocode_status ?? 'cached', geocode_error: report.geocode_error ?? null }; }
 
 export function createReportHandler(deps: CreateReportDeps, config: { allowedOrigins?: string; maxReportsPerHour?: number; duplicateRadiusM?: number; reviewThreshold?: number; enableCorroboration?: boolean } = {}) {
   const allowed = origins(config.allowedOrigins);
@@ -91,7 +91,7 @@ export function createReportHandler(deps: CreateReportDeps, config: { allowedOri
         try {
           [vision, geocode] = await Promise.all([
             deps.vision(metadata.bytes, metadata.mimeType),
-            deps.geocode(input.latitude, input.longitude).catch(() => ({ cacheKey: '', addressLabel: null, roadType: 'unknown', source: 'fallback' as const, errorCode: 'GEOCODE_PROVIDER_ERROR' as const })),
+            deps.geocode(input.latitude, input.longitude).catch(() => ({ cacheKey: '', addressLabel: null, roadType: 'unknown', source: 'fallback' as const, status: 'failed' as const, errorCode: 'GEOCODE_PROVIDER_ERROR' as const })),
           ]);
         } catch (error) {
           const code = error instanceof Error && 'code' in error ? String((error as { code: unknown }).code) : 'VISION_FAILED';
@@ -115,12 +115,12 @@ export function createReportHandler(deps: CreateReportDeps, config: { allowedOri
           }
           await deps.updateReport(reportId, { status: 'duplicate', duplicate_of: candidate.candidate_id, duplicate_distance_m: Math.round(candidate.distance_m), damage_type: vision.damage_type, severity: vision.severity, confidence: vision.confidence, ai_summary: vision.summary, address_label: geocode.addressLabel, road_type: geocode.roadType, priority_score: initialScore.score, priority_band: initialScore.priority_band, score_version: initialScore.score_version, needs_human_review: initialScore.needs_human_review });
           finalized = true;
-          return json({ report_id: reportId, status: 'duplicate', duplicate_of: candidate.candidate_id, duplicate_distance_m: Math.round(candidate.distance_m), original_report: { priority_score: originalScore?.score ?? originalReport?.priority_score ?? null, priority_band: originalScore?.priority_band ?? originalReport?.priority_band ?? null, corroboration_count: originalScore ? (await deps.getReport(candidate.candidate_id))?.corroboration_count ?? 0 : originalReport?.corroboration_count ?? 0 } }, 200, origin, allowed);
+          return json({ report_id: reportId, status: 'duplicate', duplicate_of: candidate.candidate_id, duplicate_distance_m: Math.round(candidate.distance_m), geocode_status: geocode.status, geocode_error: geocode.errorCode ?? null, original_report: { priority_score: originalScore?.score ?? originalReport?.priority_score ?? null, priority_band: originalScore?.priority_band ?? originalReport?.priority_band ?? null, corroboration_count: originalScore ? (await deps.getReport(candidate.candidate_id))?.corroboration_count ?? 0 : originalReport?.corroboration_count ?? 0 } }, 200, origin, allowed);
         }
         const finalStatus = initialScore.needs_human_review ? 'needs_review' : 'ready';
         await deps.updateReport(reportId, { status: finalStatus, damage_type: vision.damage_type, severity: vision.severity, confidence: vision.confidence, ai_summary: vision.summary, address_label: geocode.addressLabel, road_type: geocode.roadType, priority_score: initialScore.score, priority_band: initialScore.priority_band, score_version: initialScore.score_version, needs_human_review: initialScore.needs_human_review, corroboration_count: 0 });
         finalized = true;
-        return json({ report_id: reportId, status: finalStatus, damage_type: vision.damage_type, severity: vision.severity, confidence: vision.confidence, road_type: geocode.roadType, priority_score: initialScore.score, priority_band: initialScore.priority_band, corroboration_count: 0, needs_human_review: initialScore.needs_human_review }, 200, origin, allowed);
+        return json({ report_id: reportId, status: finalStatus, damage_type: vision.damage_type, severity: vision.severity, confidence: vision.confidence, road_type: geocode.roadType, priority_score: initialScore.score, priority_band: initialScore.priority_band, corroboration_count: 0, needs_human_review: initialScore.needs_human_review, geocode_status: geocode.status, geocode_error: geocode.errorCode ?? null }, 200, origin, allowed);
       } catch (error) {
         const safe = publicError(error);
         failureCode = safe.code;

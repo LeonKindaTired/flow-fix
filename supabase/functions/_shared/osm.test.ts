@@ -1,74 +1,25 @@
 import { reverseGeocode, type GeocodeCache } from './osm.ts';
-
-function cache(initial: Record<string, { address_label: string | null; road_type: string }> = {}, options: { readError?: boolean; writeError?: boolean } = {}) {
-  const values = new Map(Object.entries(initial)); let writes = 0;
-  const store: GeocodeCache = {
-    get: async (key) => { if (options.readError) throw new Error('cache read failure'); return values.get(key) ?? null; },
-    upsert: async (row) => { writes += 1; if (options.writeError) throw new Error('cache write failure'); values.set(row.cache_key, { address_label: row.address_label, road_type: row.road_type }); },
-  };
-  return { store, writes: () => writes };
-}
+function cache(initial: Record<string, { address_label: string | null; road_type: string }> = {}, options: { readError?: boolean; writeError?: boolean } = {}) { const values = new Map(Object.entries(initial)); let writes = 0; const store: GeocodeCache = { get: async (key) => { if (options.readError) throw new Error('cache read failure'); return values.get(key) ?? null; }, upsert: async (row) => { writes += 1; if (options.writeError) throw new Error('cache write failure'); values.set(row.cache_key, { address_label: row.address_label, road_type: row.road_type }); } }; return { store, writes: () => writes }; }
 function response(payload: unknown, status = 200) { return new Response(JSON.stringify(payload), { status }); }
 function assert(condition: unknown, message: string) { if (!condition) throw new Error(message); }
+function options(env: Record<string, string> = {}, fetchImpl?: typeof fetch) { return { env: { GEOCODE_PROVIDER: 'nominatim', ...env }, ...(fetchImpl ? { fetchImpl } : {}) }; }
 
-Deno.test('cache hit makes no request', async () => {
-  const c = cache({ '45.00000,25.00000': { address_label: 'cached', road_type: 'primary' } }); let calls = 0;
-  const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => { calls += 1; return response({}); } });
-  assert(result.source === 'cache' && calls === 0 && c.writes() === 0, 'cache hit was not used');
-});
+Deno.test('cache hit makes no request', async () => { const c = cache({ 'photon:45.00000,25.00000': { address_label: 'cached', road_type: 'primary' } }); let calls = 0; const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => { calls += 1; return response({}); } }); assert(result.status === 'cached' && calls === 0 && c.writes() === 0, 'cache hit was not used'); });
+Deno.test('successful highway Nominatim result is cached', async () => { const c = cache(); let requested = ''; let agent = ''; const result = await reverseGeocode(45.123456, 25.654321, c.store, options({ APP_CONTACT: 'team@example.test' }, async (input, init) => { requested = String(input); agent = String((init?.headers as Record<string, string>)['User-Agent']); return response({ display_name: 'Main Road', category: 'highway', type: 'secondary' }); })); assert(requested.includes('zoom=17') && requested.includes('format=jsonv2') && agent.includes('team@example.test') && result.roadType === 'secondary' && result.status === 'ok' && c.writes() === 1, 'Nominatim cache behavior failed'); });
+Deno.test('legitimate non-road Nominatim result is cached with unknown road type', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({ display_name: 'Park', category: 'amenity', type: 'park' }))); assert(result.roadType === 'unknown' && result.source === 'nominatim' && result.status === 'ok' && c.writes() === 1, 'non-road result failed'); });
+Deno.test('HTTP 429 does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({}, 429))); assert(result.errorCode === 'GEOCODE_RATE_LIMITED' && result.status === 'failed' && c.writes() === 0, '429 was cached'); });
+Deno.test('timeout does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({ NOMINATIM_TIMEOUT_MS: '1' }, async (_input, init) => await new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')))))); assert(result.errorCode === 'GEOCODE_TIMEOUT' && c.writes() === 0, 'timeout was cached'); });
+Deno.test('HTTP 5xx does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({}, 503))); assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, '5xx was cached'); });
+Deno.test('network error does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => { throw new Error('network'); })); assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'network error was cached'); });
+Deno.test('unparseable body does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => new Response('not-json', { status: 200 }))); assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'unparseable body was cached'); });
+Deno.test('empty Nominatim payload does not write cache', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({}))); assert(result.errorCode === 'GEOCODE_EMPTY_RESULT' && c.writes() === 0, 'empty payload was cached'); });
+Deno.test('cache read failure does not block live lookup', async () => { const c = cache({}, { readError: true }); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({ display_name: 'Building', category: 'building', type: 'yes' }))); assert(result.source === 'nominatim' && result.roadType === 'unknown' && c.writes() === 1, 'cache read failure blocked lookup'); });
+Deno.test('cache write failure does not block result', async () => { const c = cache({}, { writeError: true }); const result = await reverseGeocode(45, 25, c.store, options({}, async () => response({ display_name: 'Building', category: 'building', type: 'yes' }))); assert(result.source === 'nominatim' && result.addressLabel === 'Building' && result.roadType === 'unknown' && c.writes() === 1, 'cache write failure blocked result'); });
 
-Deno.test('successful highway result is cached', async () => {
-  const c = cache(); let requested = ''; let agent = '';
-  const result = await reverseGeocode(45.123456, 25.654321, c.store, { env: { APP_CONTACT: 'team@example.test' }, fetchImpl: async (input, init) => { requested = String(input); agent = String((init?.headers as Record<string, string>)['User-Agent']); return response({ display_name: 'Main Road', category: 'highway', type: 'secondary' }); } });
-  assert(requested.includes('zoom=17') && requested.includes('format=jsonv2') && agent.includes('team@example.test') && result.roadType === 'secondary' && c.writes() === 1, 'successful highway cache behavior failed');
-});
-
-Deno.test('legitimate non-road result is cached with unknown road type', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({ display_name: 'Park', category: 'amenity', type: 'park' }) });
-  assert(result.roadType === 'unknown' && result.source === 'nominatim' && c.writes() === 1, 'non-road result was not cached as unknown');
-});
-
-Deno.test('HTTP 429 does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({}, 429) });
-  assert(result.errorCode === 'GEOCODE_RATE_LIMITED' && c.writes() === 0, '429 was cached');
-});
-
-Deno.test('timeout does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { NOMINATIM_TIMEOUT_MS: '1' }, fetchImpl: async (_input, init) => await new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')))) });
-  assert(result.errorCode === 'GEOCODE_TIMEOUT' && c.writes() === 0, 'timeout was cached');
-});
-
-Deno.test('HTTP 5xx does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({}, 503) });
-  assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, '5xx was cached');
-});
-
-Deno.test('network error does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => { throw new Error('network'); } });
-  assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'network error was cached');
-});
-
-Deno.test('unparseable body does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => new Response('not-json', { status: 200 }) });
-  assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'unparseable body was cached');
-});
-
-Deno.test('empty payload does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({}) });
-  assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'empty payload was cached');
-});
-
-Deno.test('payload with error field does not write cache', async () => {
-  const c = cache(); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({ error: 'Unable to geocode' }) });
-  assert(result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'error payload was cached');
-});
-
-Deno.test('cache read failure does not block live lookup', async () => {
-  const c = cache({}, { readError: true }); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({ display_name: 'Building', category: 'building', type: 'yes' }) });
-  assert(result.source === 'nominatim' && result.roadType === 'unknown' && c.writes() === 1, 'cache read failure blocked lookup');
-});
-
-Deno.test('cache write failure does not block result', async () => {
-  const c = cache({}, { writeError: true }); const result = await reverseGeocode(45, 25, c.store, { fetchImpl: async () => response({ display_name: 'Building', category: 'building', type: 'yes' }) });
-  assert(result.source === 'nominatim' && result.addressLabel === 'Building' && result.roadType === 'unknown' && c.writes() === 1, 'cache write failure blocked result');
-});
+Deno.test('Photon highway secondary maps road and builds address', async () => { const c = cache(); let url = ''; const result = await reverseGeocode(45.747285, 21.235311, c.store, { env: { GEOCODE_PROVIDER: 'photon', GEOCODE_RADIUS_M: '50', APP_CONTACT: 'team@example.test' }, fetchImpl: async (input, init) => { url = String(input); assert(String((init?.headers as Record<string, string>)['User-Agent']).includes('team@example.test'), 'User-Agent missing contact'); return response({ features: [{ properties: { osm_key: 'highway', osm_value: 'secondary', name: 'Strada Cluj', street: 'Strada Cluj', city: 'Timisoara' } }] }); } }); assert(result.source === 'photon' && result.status === 'ok' && result.roadType === 'secondary' && result.addressLabel === 'Strada Cluj, Timisoara' && url.includes('radius=0.05') && url.includes('osm_tag=highway') && c.writes() === 1, 'Photon highway mapping failed'); });
+Deno.test('Photon non-highway result is cached as unknown road', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => response({ features: [{ properties: { osm_key: 'amenity', osm_value: 'park', name: 'Park' } }] }) }); assert(result.status === 'ok' && result.roadType === 'unknown' && c.writes() === 1, 'Photon non-highway mapping failed'); });
+Deno.test('Photon empty features are failed and not cached', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => response({ features: [] }) }); assert(result.status === 'failed' && result.errorCode === 'GEOCODE_EMPTY_RESULT' && result.roadType === 'unknown' && c.writes() === 0, 'Photon empty result was cached'); });
+Deno.test('Photon HTTP 403 is failed and not cached', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => response({}, 403) }); assert(result.status === 'failed' && result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'Photon 403 handling failed'); });
+Deno.test('Photon HTTP 429 is failed and not cached', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => response({}, 429) }); assert(result.status === 'failed' && result.errorCode === 'GEOCODE_RATE_LIMITED' && c.writes() === 0, 'Photon 429 handling failed'); });
+Deno.test('Photon timeout is failed and not cached', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon', NOMINATIM_TIMEOUT_MS: '1' }, fetchImpl: async (_input, init) => await new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')))) }); assert(result.status === 'failed' && result.errorCode === 'GEOCODE_TIMEOUT' && c.writes() === 0, 'Photon timeout handling failed'); });
+Deno.test('Photon malformed body is failed and not cached', async () => { const c = cache(); const result = await reverseGeocode(45, 25, c.store, { env: { GEOCODE_PROVIDER: 'photon' }, fetchImpl: async () => new Response('bad-json', { status: 200 }) }); assert(result.status === 'failed' && result.errorCode === 'GEOCODE_PROVIDER_ERROR' && c.writes() === 0, 'Photon malformed body handling failed'); });
