@@ -9,7 +9,7 @@
 1. Expo / React Native app (native app for the judge demo; Expo web export for external testers).
 2. Supabase (Postgres + PostGIS + Storage + Edge Functions + anonymous Auth).
 3. One vision API (evaluate Google Gemini API first; verify current free-tier eligibility and quotas before choosing the exact model).
-4. OpenStreetMap / Nominatim (reverse geocoding and best-effort road class).
+4. OpenStreetMap / Photon (Komoot) (reverse geocoding and best-effort road class).
 5. Next.js dashboard with Leaflet.
 
 The scoring function, duplicate logic, cache, and public dashboard view are part of Supabase, not separate components. Do not add Overpass, a separate API server, or another database.
@@ -26,8 +26,8 @@ The scoring function, duplicate logic, cache, and public dashboard view are part
 - Use PostGIS and an SQL RPC for nearby-report lookup. `supabase-js` cannot express `ST_DWithin` directly.
 - Use a 20 m initial duplicate radius, configurable in one place. A same-type nearby submission becomes a corroborating report, not a discarded report.
 - Each accepted corroborating submission increments `corroboration_count` on the original and triggers a re-score of the original. Prevent one anonymous user from inflating the same report repeatedly with a unique confirmation record, and ignore corroboration from the original report's own reporter. Anonymous identities reset when browser storage is cleared, so corroboration is a rough signal.
-- Nominatim reverse geocoding is the only OSM call in the MVP. Request `zoom=17`; when the returned object is a highway, use its `type` as the road class. Verify this behavior against five real coordinates before relying on it. If the response is not a highway object or has no usable class, store `unknown`. No Overpass.
-- Run vision and Nominatim enrichment concurrently with `Promise.allSettled` (with timeouts); a Nominatim request is still subject to the public service's one-request-per-second policy. Cache results in Postgres (the cache mainly helps retries and repeated demo coordinates, because real GPS fixes rarely repeat to 5 decimals). Stateless Edge Functions cannot enforce a global one-request-per-second limit, so rely on low hackathon volume and never call Nominatim in a loop. A geocoding failure must not block a valid report.
+- Public Nominatim returned HTTP 403 from the Supabase Edge environment, so the live pipeline uses Photon (`GEOCODE_PROVIDER=photon` default, `GEOCODE_RADIUS_M`, provider name in the cache key). Nominatim remains selectable but is not used in production.
+- Run vision and Photon enrichment concurrently with `Promise.allSettled` (with timeouts). Cache results in Postgres (the cache mainly helps retries and repeated demo coordinates, because real GPS fixes rarely repeat to 5 decimals). A geocoding failure must not block a valid report.
 - AI confidence is not part of the priority score. Use it only as a review signal (e.g. below 0.60 => `needs_human_review=true`).
 - The score is a triage aid, not an engineering or official road-safety assessment.
 - No offline submission claim: airplane mode must show a clear offline state. The dashboard can use already-loaded/seeded demo data, visibly labelled.
@@ -71,7 +71,7 @@ flowfix/
 │   │       ├── cors.ts                 # Shared CORS headers
 │   │       ├── schemas.ts              # Runtime request and AI response validation
 │   │       ├── vision.ts               # Vision API adapter and strict parser
-│   │       ├── osm.ts                  # Nominatim reverse geocoding + cache access
+│   │       ├── osm.ts                  # Photon/Nominatim reverse geocoding + cache access
 │   │       ├── duplicate.ts             # Calls PostGIS RPC and records corroboration
 │   │       ├── scoring.ts              # Pure, versioned score function (integer arithmetic)
 │   │       ├── scoring.test.ts         # Deno unit tests: formula, bands, boundaries
@@ -127,7 +127,7 @@ Use UUID primary keys and UTC `timestamptz`. Enable PostGIS. Store location as `
 | `latitude`             | `double precision`      | Optional denormalized coordinate for simple client display               |
 | `longitude`            | `double precision`      | Optional denormalized coordinate for simple client display               |
 | `location_source`      | `text`                  | `gps` only for MVP                                                       |
-| `address_label`        | `text`                  | Nullable Nominatim label                                                 |
+| `address_label`        | `text`                  | Nullable geocoder label                                                   |
 | `road_type`            | `text`                  | OSM highway class or `unknown`                                           |
 | `damage_type`          | `text`                  | `pothole`, `crack`, `surface_damage`, `other`, `unknown`                 |
 | `severity`             | `smallint`              | 1–5; nullable before analysis                                            |
@@ -259,7 +259,9 @@ Response for a new report:
   "priority_score": 56,
   "priority_band": "high",
   "corroboration_count": 0,
-  "needs_human_review": false
+  "needs_human_review": false,
+  "geocode_status": "ok",
+  "geocode_error": null
 }
 ```
 
@@ -271,6 +273,8 @@ Response when corroborating an existing report:
   "status": "duplicate",
   "duplicate_of": "original-report-uuid",
   "duplicate_distance_m": 8,
+  "geocode_status": "cached",
+  "geocode_error": null,
   "original_report": {
     "priority_score": 60,
     "priority_band": "high",
@@ -344,8 +348,10 @@ Example row:
 | `VISION_MODEL`                       | Exact tested vision model ID                               |
 | `VISION_TIMEOUT_MS`                  | Short vision request timeout, default `8000`               |
 | `DEMO_MODE`                          | Explicitly enables labelled deterministic fallback         |
-| `NOMINATIM_BASE_URL`                 | `https://nominatim.openstreetmap.org`                      |
-| `APP_CONTACT`                        | Identifying contact string for Nominatim requests          |
+| `GEOCODE_PROVIDER`                   | `photon` by default; `nominatim` remains selectable        |
+| `GEOCODE_RADIUS_M`                   | Photon search radius in metres                             |
+| `NOMINATIM_BASE_URL`                 | Selectable Nominatim endpoint                             |
+| `APP_CONTACT`                        | Identifying contact string for geocoder requests           |
 | `DUPLICATE_RADIUS_METERS`            | Default `20`                                               |
 | `VISION_CONFIDENCE_REVIEW_THRESHOLD` | Default `0.60`                                             |
 | `ENABLE_CORROBORATION`               | Default `true`; set `false` to apply the hour-14 scope cut |
@@ -354,9 +360,9 @@ Example row:
 
 - **Gemini:** Evaluate first because selected models have offered a no-cost API tier. Free eligibility, model availability, quotas, rate limits, regional access, and data-use terms change. Verify the exact model in the current official pricing/rate-limit docs and run a real image request before locking it in. Do not assume unlimited free usage. Keep sensitive faces/plates out of test images. Use the provider's structured-output mode (JSON response schema) if available, and still validate every response at runtime.
 - **Supabase:** Free quotas and inactivity behavior can change; verify current limits before the event. Keep image sizes small and retention minimal. Use a local/seeded fallback for demo continuity.
-- **Nominatim:** Public endpoint has a strict usage policy, including a maximum of one request per second, identifying User-Agent/contact, attribution, and caching. It is not a guaranteed free production API. Use only one reverse-geocode request per new uncached coordinate and cache in Postgres. The cache mainly helps retries and repeated demo coordinates, and global rate limiting is not enforced across stateless functions, so keep volume low.
+- **Geocoding:** Public Nominatim returned HTTP 403 from the Supabase Edge environment, so production uses Photon (`GEOCODE_PROVIDER=photon` by default). Nominatim remains selectable but is not used in production. Photon is a free community service with no uptime guarantee. On failure `road_type` is `unknown` and the report is still created. Cache keys include provider name and `GEOCODE_RADIUS_M` configures the Photon radius.
 - **OSM data/tiles:** Attribute OpenStreetMap contributors. Tile services have their own usage policies; do not treat public tiles as unrestricted production hosting.
-- **No Overpass in MVP:** Nominatim may return the nearest OSM object rather than a highway. Only use `type` as road class when the returned category/class is actually `highway`; otherwise `unknown`. Verify five real coordinates early.
+- **No Overpass in MVP:** Photon road data is used when the returned object is a highway; otherwise `unknown`.
 - **Expo web:** Camera and geolocation require HTTPS and browser permissions. Test with actual Android/iOS browsers. Use photo-library selection as fallback if web camera capture is unreliable.
 - **Leaflet:** Use `next/dynamic` with `ssr: false` for the map component in Next.js. Use `CircleMarker` rather than default marker icon assets to avoid bundler icon-path issues and to encode priority color.
 

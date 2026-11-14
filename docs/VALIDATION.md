@@ -181,26 +181,15 @@ Storage upload isolation and the select-own policy need an authenticated session
 - [ ] Original report priority is re-scored after increment.
 - [ ] Concurrent duplicate submissions do not cause lost increments (transactional update).
 
-## 5. Nominatim verification and caching
+## 5. Geocoding verification and caching
 
-Before relying on road class, test five real coordinates in the demo area at `zoom=17`.
+Public Nominatim returned HTTP 403 from the Supabase Edge environment, so the live pipeline uses Photon (`GEOCODE_PROVIDER=photon` default, `GEOCODE_RADIUS_M`, provider name in the cache key). Nominatim remains selectable but is not used in production.
 
-Record in `docs/VALIDATION.md` or evidence notes:
+Verified live: Strada Cluj, Timisoara (45.747285, 21.235311) returns highway/secondary, address `Strada Cluj, Timisoara`, score 61 for severity 4. A second report at the same point became a duplicate and raised the original to 65.
 
-- Coordinate (or a privacy-safe rounded coordinate).
-- Nominatim response category/class and type.
-- Whether the returned object is actually a highway.
-- Stored road type or `unknown`.
+Photon is a free community service with no uptime guarantee. On failure `road_type` is `unknown` and the report is still created. `create-report` returns `geocode_status` (`ok`, `cached`, or `failed`) and `geocode_error`.
 
-Implementation rules:
-
-- One request per cache miss, no more than one request per second to the public service.
-- Send identifying User-Agent/contact information.
-- Cache by rounded latitude/longitude in `geocode_cache`.
-- Use `type` as `road_type` only if the response identifies a highway object.
-- Otherwise set `road_type='unknown'`.
-- No Overpass calls in the hackathon MVP.
-- If the public service is unavailable or rate-limited, continue with coordinate-only report and unknown road context.
+The `supabase/functions/.env.example` file stays documentation only.
 
 ## 6. External tester access: HTTPS web build
 
@@ -228,7 +217,7 @@ Keep failure testing focused for the 48-hour schedule:
 | Vision failure | Mock timeout/quota/malformed JSON  | Show failure or explicitly labelled demo fallback; never present fallback as live AI                |
 | Offline        | Enable airplane mode before upload | Show offline state and no-success message; do not claim a report was submitted                      |
 
-Also enforce image size/MIME validation and Nominatim cache/rate limiting as normal request validation, not separate exploratory failure campaigns.
+Also enforce image size/MIME validation and geocoder caching as normal request validation, not separate exploratory failure campaigns.
 
 ## 8. Manual demo checklist
 
@@ -237,8 +226,8 @@ Also enforce image size/MIME validation and Nominatim cache/rate limiting as nor
 - [ ] Confirm native Expo app works on the actual demo phone.
 - [ ] Confirm Supabase project is awake and secrets are correct.
 - [ ] Confirm exact vision model/key/quota with a real image request.
-- [ ] Confirm Nominatim cache has the demo coordinate or can make one compliant request.
-- [ ] Confirm five-coordinate road-class verification is recorded.
+- [ ] Confirm Photon cache has the demo coordinate or can make one request.
+- [ ] Confirm the verified Photon road-class result is recorded.
 - [ ] Seed at least five synthetic reports, all marked `source='seeded_demo'`.
 - [ ] Confirm dashboard is public read-only and opens without login.
 - [ ] Confirm map tiles and OpenStreetMap attribution.
@@ -273,7 +262,7 @@ Every synthetic row must be marked `seeded_demo`. Synthetic reports must not be 
 
 **8–20 sec: Citizen:** Take/select a pothole photo; show GPS capture and upload.
 
-**20–35 sec: Glue It Together:** "Supabase validates the upload, the vision API classifies damage, Nominatim adds address/road context, PostGIS checks nearby reports, and a deterministic score combines severity, road importance and corroboration."
+**20–35 sec: Glue It Together:** "Supabase validates the upload, the vision API classifies damage, Photon adds address/road context, PostGIS checks nearby reports, and a deterministic score combines severity, road importance and corroboration."
 
 **35–48 sec: Municipality:** Show the marker, priority band, score breakdown and corroboration count on the public dashboard.
 
@@ -338,7 +327,7 @@ If not measured, write `Not measured`. Do not estimate or invent values.
 |    2 | Expo web geolocation/photo selection fails on a tester's phone | Medium–High | High for Living Labs | Deploy the skeleton web build by hour 6 and test on two real phones (F-104A); photo picker fallback; record coverage                                                                    |
 |    3 | GPS permission denied on judge demo phone                      | Medium      | High                 | Preflight permission; clear retry/settings path; use a prepared demo device                                                                                                             |
 |    4 | Edge Function timeout or orchestration bug                     | Medium      | High                 | Parallelize vision and geocoding with `Promise.allSettled`; cache; persist state                                                                                                        |
-|    5 | Nominatim returns a non-highway object or rate-limits          | Medium      | Medium               | Verify five coordinates; use unknown road class; cache; no Overpass                                                                                                                     |
+|    5 | Photon returns a non-highway object or is unavailable           | Medium      | Medium               | Use unknown road class on failure; cache; no Overpass                                                                                                                                    |
 |    6 | Public dashboard view/RLS misconfigured                        | Medium      | High                 | Test anon access to view and denial on base tables before demo                                                                                                                          |
 |    7 | PostGIS duplicate/corroboration race or false positive         | Medium      | Medium               | Transactional RPC, unique confirmation constraint, compatible type + radius                                                                                                             |
 |    8 | Supabase free-tier quota/project pause                         | Low–Medium  | High                 | Verify current limits; keep seed and recording fallback                                                                                                                                 |
@@ -357,7 +346,7 @@ Do not call the MVP demo-ready until all P0 items pass:
 - [ ] Photo uploads to private Storage under the user's own UUID path.
 - [ ] Edge Function validates auth, ownership, file and request.
 - [ ] Vision result is valid, or fallback is explicitly labelled.
-- [ ] Nominatim result is cached; road class is valid highway type or `unknown`.
+- [ ] Photon result is cached; road class is valid highway type or `unknown`.
 - [ ] PostGIS duplicate lookup runs.
 - [ ] A distinct corroborating reporter increments original `corroboration_count` once and triggers re-score, the original reporter cannot corroborate their own report, or `ENABLE_CORROBORATION=false` is a recorded hour-14 decision.
 - [ ] Score is deterministic, versioned, and confidence is not a score input.

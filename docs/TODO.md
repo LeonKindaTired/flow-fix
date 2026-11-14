@@ -5,7 +5,7 @@
 1. Work in small tasks; finish and verify each before starting the next.
 2. Never invent interviews, quotes, user feedback, timestamps, adoption, or metrics. Keep placeholders until the team records real evidence.
 3. Never expose API keys or the service-role key in client code.
-4. Keep exactly five components: Expo app, Supabase, one vision API, OSM/Nominatim, Next.js dashboard. No Overpass and no separate backend.
+4. Keep exactly five components: Expo app, Supabase, one vision API, OSM/Photon, Next.js dashboard. No Overpass and no separate backend.
 5. Use TypeScript and runtime validation for all external payloads.
 6. Keep scoring deterministic, explainable, versioned, and unit-tested.
 7. Do not invent location, AI results, road class, or test outcomes. Use explicit errors/unknown values or a clearly labelled demo fixture.
@@ -81,15 +81,15 @@
   - Note which assumptions were supported, contradicted, or remain unknown.
   - No invented participants, timestamps, or quotes.
 
-### F-005 [P0] Verify Nominatim road-class behavior on five real coordinates
+### F-005 [P0] Verify geocoder road-class behavior
 
-- **Description:** Test reverse geocoding with `zoom=17` on five representative coordinates in the intended demo area. Inspect response category/class/type. Do not build an Overpass dependency.
+- **Description:** Public Nominatim returned HTTP 403 from the Supabase Edge environment, so the live pipeline uses Photon. Nominatim remains selectable but is not used in production. Do not build an Overpass dependency.
 - **Files:** `docs/VALIDATION.md`, `docs/evidence/iterations.md` only if a real design decision results.
 - **Dependencies:** F-004 (can run in parallel with F-201).
 - **Acceptance criteria:**
-  - Record five coordinates and whether Nominatim returned a highway object/class.
-  - If it does not reliably return highway type, set road class to `unknown`; do not add Overpass during the hackathon.
-  - Respect Nominatim rate limit and cache each result.
+  - Use Photon with `GEOCODE_PROVIDER=photon` by default and `GEOCODE_RADIUS_M` for its radius.
+  - Include the provider name in the cache key.
+  - If geocoding fails, use `road_type='unknown'` and still create the report.
 
 ## Phase 1: Core flow (3–20h)
 
@@ -164,17 +164,17 @@
   - Timeout, quota, and malformed-response failures map to stable error codes.
   - If fallback is used, response and UI clearly say `DEMO_RESULT`; never imply it came from live AI.
 
-### F-106 [P0] Implement Nominatim adapter and Postgres cache
+### F-106 [P0] Implement geocoder adapter and Postgres cache
 
-- **Description:** Reverse geocode coordinates at `zoom=17`, use returned road `type` only when response category is `highway`, and cache by rounded lat/lon. Do not call Overpass.
+- **Description:** Use Photon by default, keep Nominatim selectable, use returned road data only for highway results, and cache by provider plus rounded lat/lon. Do not call Overpass.
 - **Files:** `supabase/functions/_shared/osm.ts`, `supabase/migrations/001_initial_schema.sql`.
 - **Dependencies:** F-002, F-005.
 - **Acceptance criteria:**
   - Cache hit avoids a network call.
-  - Cache miss makes one identified Nominatim request and persists `address_label`, `road_type`, `fetched_at`.
+  - Cache miss makes one identified geocoder request and persists `address_label`, `road_type`, `fetched_at`.
   - If response is not a highway object or has no usable highway type, road type is `unknown`.
   - Timeout/rate-limit failure does not block report creation.
-  - Calls use a descriptive User-Agent/contact and happen at most once per uncached new report. A global one-per-second limit cannot be enforced across stateless functions, so keep volume low and never loop.
+  - Photon is a free community service with no uptime guarantee; a failure uses `road_type='unknown'` and does not block report creation.
 
 ### F-107 [P0] Implement PostGIS duplicate lookup
 
@@ -223,8 +223,9 @@
   - Reject unauthenticated requests and image paths not owned by the caller.
   - Validate image existence, MIME type, and server-side size limit before vision call.
   - Create a `processing` report row before external work.
-  - Run vision and Nominatim concurrently using `Promise.allSettled` with independent timeouts. Nominatim must still respect its global rate limit and cache; concurrency is across providers, not multiple Nominatim requests.
+  - Run vision and geocoding concurrently using `Promise.allSettled` with independent timeouts.
   - A vision failure sets `needs_review`/`failed` and uses a clearly labelled demo fallback only when explicit demo mode is enabled. Geocoding failure sets address null/road unknown and does not fail the report.
+  - The response returns `geocode_status` (`ok`, `cached`, or `failed`) and `geocode_error`.
   - After vision classification, call PostGIS duplicate RPC. If a compatible candidate exists, retain the new report, link it as duplicate and, when `ENABLE_CORROBORATION` is true, call the transactional corroboration RPC and re-score the original only if a new confirmation was inserted.
   - For a non-duplicate, calculate score and persist result.
   - Return stable JSON/error shape and never log secrets or raw image bytes.
@@ -271,7 +272,7 @@
 
 ### F-113 [P0] End-to-end vertical-slice smoke test
 
-- **Description:** Verify photo upload → vision → Nominatim/cache → PostGIS duplicate check → scoring → database → public dashboard.
+- **Description:** Verify photo upload → vision → Photon/cache → PostGIS duplicate check → scoring → database → public dashboard.
 - **Files:** `docs/VALIDATION.md`, test fixtures/scripts, implementation files only for fixes.
 - **Dependencies:** F-109, F-110, F-111.
 - **Acceptance criteria:**
@@ -380,7 +381,7 @@
 - **Files:** `docs/evidence/**`, presentation assets.
 - **Dependencies:** F-201, F-202, F-301, F-302.
 - **Acceptance criteria:**
-  - Glue It Together slide traces actual data across Expo, Supabase, vision, Nominatim, PostGIS and dashboard.
+  - Glue It Together slide traces actual data across Expo, Supabase, vision, Photon, PostGIS and dashboard.
   - Living Labs evidence contains real timestamps, participant counts, feedback and before/after measurements.
   - Missing evidence is explicitly labelled missing; no fabricated proof.
 

@@ -1,0 +1,2 @@
+-- WARNING: Pre-tester cleanup only. Never run during tester sessions.
+-- DELETE FROM public.reports WHERE source = 'citizen';
