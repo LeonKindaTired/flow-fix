@@ -23,8 +23,8 @@ export default function NewReportScreen() {
     setMessage('');
     setShowSettings(false);
     const picked = useCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
     if (picked.canceled) return;
     try {
       const prepared = await prepareImage(picked.assets[0]);
