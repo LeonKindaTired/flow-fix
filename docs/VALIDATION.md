@@ -95,6 +95,18 @@ Bands: low 0-34, medium 35-54, high 55-74, urgent 75-100. Keep the cutoffs in on
 
 ## 4. API and database contract checks
 
+### Live F-105 vision smoke verification
+
+Verified on 2026-11-14 with a real photo using Gemini:
+
+- `VISION_PROVIDER=gemini`
+- `VISION_MODEL=gemini-3.1-flash-lite`
+- `VISION_TIMEOUT_MS=12000`
+- Measured latency: approximately 3 seconds.
+- Validated result: `damage_type=pothole`, `severity=4`, `confidence=0.98`, `source=live_ai`.
+
+The API key was supplied through the local environment and was not recorded here.
+
 ### Create-report contract
 
 - [ ] Valid authenticated request with owned Storage path passes.

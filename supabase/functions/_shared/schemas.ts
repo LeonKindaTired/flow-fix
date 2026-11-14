@@ -47,7 +47,7 @@ export type VisionResult = {
 export const createReportRequestSchema = {
   parse(input: unknown): CreateReportRequest {
     const value = record(input);
-    if (typeof value.image_path !== 'string' || value.image_path.length === 0) throw new Error('image_path is required.');
+    if (typeof value.image_path !== 'string' || !/^[0-9a-f-]{36}\/[^/]+$/i.test(value.image_path)) throw new Error('image_path must start with a UUID folder and contain a filename.');
     const latitude = finiteNumber(value.latitude, 'latitude');
     const longitude = finiteNumber(value.longitude, 'longitude');
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) throw new Error('Coordinates are invalid.');

@@ -21,6 +21,6 @@ Deno.test('vision schema rejects invalid confidence and severity', () => {
 });
 
 Deno.test('schemas accept valid values', () => {
-  assertEqual(parseCreateReportRequest({ image_path: 'u/a.jpg', latitude: 0, longitude: 0, location_source: 'gps' }).location_source, 'gps');
+  assertEqual(parseCreateReportRequest({ image_path: '00000000-0000-4000-8000-000000000000/a.jpg', latitude: 0, longitude: 0, location_source: 'gps' }).location_source, 'gps');
   assertEqual(parseVisionResult({ damage_type: 'pothole', severity: 3, confidence: 0.8, summary: 'pothole' }).severity, 3);
 });

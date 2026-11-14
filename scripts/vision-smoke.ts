@@ -1,6 +1,6 @@
 import { analyzeImage } from '../supabase/functions/_shared/vision.ts';
 
-const imagePath = Deno.args[0];
+const imagePath = Deno.args[0] === '--' ? Deno.args[1] : Deno.args[0];
 if (!imagePath) throw new Error('Usage: deno run --allow-env --allow-read scripts/vision-smoke.ts <image-path>');
 
 const extension = imagePath.toLowerCase().split('.').pop();

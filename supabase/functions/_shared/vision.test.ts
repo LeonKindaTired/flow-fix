@@ -7,7 +7,11 @@ function geminiText(text: string) { return { candidates: [{ content: { parts: [{
 async function expectCode(action: () => Promise<unknown>, code: string) { try { await action(); throw new Error(`Expected ${code}`); } catch (error) { if (!(error instanceof VisionAdapterError) || error.code !== code) throw error; } }
 
 Deno.test('vision accepts structured JSON and maps unknown damage to unknown', async () => {
-  const result = await analyzeImage(image, 'image/jpeg', { env, fetchImpl: async () => response(geminiText('{"damage_type":"fallen_tree","severity":3,"confidence":0.8,"summary":"tree"}')) });
+  let requestUrl = '';
+  let requestHeaders: HeadersInit | undefined;
+  const result = await analyzeImage(image, 'image/jpeg', { env, fetchImpl: async (input, init) => { requestUrl = String(input); requestHeaders = init?.headers; return response(geminiText('{"damage_type":"fallen_tree","severity":3,"confidence":0.8,"summary":"tree"}')); } });
+  const headerValue = new Headers(requestHeaders).get('x-goog-api-key');
+  if (requestUrl.includes('key=') || headerValue !== 'test-key') throw new Error('Gemini key must be header-only and URL must contain no key.');
   if (result.source !== 'live_ai' || result.damage_type !== 'unknown') throw new Error('Expected live normalized result.');
 });
 Deno.test('vision accepts fenced JSON', async () => {

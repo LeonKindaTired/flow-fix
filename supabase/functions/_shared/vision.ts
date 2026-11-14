@@ -6,6 +6,14 @@ export type VisionOutput = VisionResult & { source: 'live_ai' | 'DEMO_RESULT' };
 type FetchLike = typeof fetch;
 
 const allowedDamageTypes = new Set(['pothole', 'crack', 'surface_damage', 'other', 'unknown']);
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
+}
 function normalizeDamage(value: unknown): unknown {
   if (typeof value !== 'string' || value.trim() === '') return value;
   return allowedDamageTypes.has(value) ? value : 'unknown';
@@ -31,12 +39,11 @@ export async function analyzeImage(image: ArrayBuffer | Blob, mimeType: string, 
   }
   try {
     const bytes = image instanceof Blob ? await image.arrayBuffer() : image;
-    const base64 = Uint8Array.from(new Uint8Array(bytes), (byte) => byte).reduce((out, byte) => out + String.fromCharCode(byte), '');
-    const encoded = btoa(base64);
+    const encoded = bytesToBase64(new Uint8Array(bytes));
     const schema = { type: 'OBJECT', properties: { damage_type: { type: 'STRING', enum: ['pothole', 'crack', 'surface_damage', 'other', 'unknown'] }, severity: { type: 'INTEGER' }, confidence: { type: 'NUMBER' }, summary: { type: 'STRING' } }, required: ['damage_type', 'severity', 'confidence', 'summary'] };
     let request: { url: string; body: unknown; headers: Record<string, string> };
     if (provider === 'gemini') {
-      request = { url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, body: { contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: encoded } }, { text: 'Classify this road-damage image. Return only the required JSON fields.' }] }], generationConfig: { responseMimeType: 'application/json', responseSchema: schema } }, headers: { 'Content-Type': 'application/json' } };
+      request = { url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, body: { contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: encoded } }, { text: 'Classify this road-damage image. Return only the required JSON fields.' }] }], generationConfig: { responseMimeType: 'application/json', responseSchema: schema } }, headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' } };
     } else if (provider === 'openai') {
       request = { url: 'https://api.openai.com/v1/chat/completions', body: { model, messages: [{ role: 'user', content: [{ type: 'text', text: 'Classify this road-damage image. Return only the required JSON fields.' }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${encoded}` } }] }], response_format: { type: 'json_object' } }, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
     } else {
@@ -46,10 +53,23 @@ export async function analyzeImage(image: ArrayBuffer | Blob, mimeType: string, 
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try { response = await fetchImpl(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), signal: controller.signal }); }
-    catch (error) { if (error instanceof VisionAdapterError) throw error; throw new VisionAdapterError(error instanceof DOMException && error.name === 'AbortError' ? 'VISION_TIMEOUT' : 'VISION_PROVIDER_ERROR', 'Vision provider request failed.'); }
+    catch (error) {
+      if (error instanceof VisionAdapterError) throw error;
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : 'unknown transport error';
+      throw new VisionAdapterError(error instanceof DOMException && error.name === 'AbortError' ? 'VISION_TIMEOUT' : 'VISION_PROVIDER_ERROR', `Vision provider request failed: ${detail}`);
+    }
     finally { clearTimeout(timer); }
     if (response.status === 429) throw new VisionAdapterError('VISION_RATE_LIMITED', 'Vision provider rate limit reached.');
-    if (!response.ok) throw new VisionAdapterError('VISION_PROVIDER_ERROR', `Vision provider returned HTTP ${response.status}.`);
+    if (!response.ok) {
+      let providerMessage = '';
+      try {
+        const errorPayload = await response.clone().json() as { error?: { message?: unknown } };
+        if (typeof errorPayload.error?.message === 'string') providerMessage = `: ${errorPayload.error.message}`;
+      } catch {
+        // Keep the stable status-only error when the provider body is not JSON.
+      }
+      throw new VisionAdapterError('VISION_PROVIDER_ERROR', `Vision provider ${provider}/${model} returned HTTP ${response.status}${providerMessage}`);
+    }
     const payload = await response.json().catch(() => { throw new VisionAdapterError('VISION_INVALID_RESPONSE', 'Vision provider response was not valid JSON.'); });
     const text = provider === 'gemini' ? payload?.candidates?.[0]?.content?.parts?.[0]?.text : payload?.choices?.[0]?.message?.content;
     const parsed = jsonText(text);
