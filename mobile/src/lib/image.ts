@@ -10,10 +10,12 @@ export type PreparedImage = {
   uri: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
   size: number;
+  /** Keep the browser Blob so uploading does not have to fetch a blob: URL. */
+  webBlob?: Blob;
 };
 
 function mimeTypeForAsset(asset: ImagePickerAsset): PreparedImage['mimeType'] {
-  const mimeType = asset.mimeType?.toLowerCase();
+  const mimeType = (asset.mimeType ?? asset.file?.type)?.toLowerCase();
   if (!mimeType || !ACCEPTED_MIME_TYPES.has(mimeType)) {
     throw new Error('Unsupported image type. Choose a JPEG, PNG, or WebP image.');
   }
@@ -52,14 +54,17 @@ async function canvasEncode(source: Blob, maxDimension: number, quality: number)
 }
 
 async function prepareWebImage(asset: ImagePickerAsset): Promise<PreparedImage> {
-  const source = await fetch(asset.uri).then((response) => {
+  // Expo ImagePicker exposes the selected browser File on web. Using it directly
+  // avoids a second fetch of the temporary blob: URL, which can remain pending
+  // in some browsers and makes submission look like it is stuck forever.
+  const source: Blob = asset.file ?? await fetch(asset.uri).then((response) => {
     if (!response.ok) throw new Error('The selected web image is no longer available. Choose it again.');
     return response.blob();
   });
   let output = await canvasEncode(source, 1600, 0.82);
   if (output.size > TARGET_UPLOAD_BYTES) output = await canvasEncode(source, 1600, 0.62);
   if (output.size > MAX_UPLOAD_BYTES) throw new Error('Image is larger than the 5 MB upload limit after compression. Choose a smaller image.');
-  return { uri: URL.createObjectURL(output), mimeType: 'image/jpeg', size: output.size };
+  return { uri: URL.createObjectURL(output), mimeType: 'image/jpeg', size: output.size, webBlob: output };
 }
 
 export async function prepareImage(asset: ImagePickerAsset): Promise<PreparedImage> {

@@ -44,6 +44,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
 async function uploadBody(image: PreparedImage): Promise<Blob | ArrayBuffer> {
   if (typeof window !== 'undefined') {
+    if (image.webBlob) return image.webBlob;
     const blob = await fetch(image.uri).then((response) => response.blob());
     if (blob.size === 0 || blob.size > MAX_UPLOAD_BYTES) {
       throw new Error('Prepared web image is missing or exceeds the 5 MB upload limit.');

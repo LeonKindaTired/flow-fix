@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { PhotoPreview } from '../src/components/PhotoPreview';
@@ -15,6 +15,10 @@ export default function NewReportScreen() {
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [result, setResult] = useState<ReportResult | null>(null);
 
+  useEffect(() => () => {
+    if (image?.uri.startsWith('blob:')) URL.revokeObjectURL(image.uri);
+  }, [image]);
+
   async function choosePhoto(useCamera: boolean) {
     setMessage('');
     setShowSettings(false);
@@ -22,7 +26,14 @@ export default function NewReportScreen() {
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
     if (picked.canceled) return;
-    try { setImage(await prepareImage(picked.assets[0])); setUploadedPath(undefined); setResult(null); }
+    try {
+      const prepared = await prepareImage(picked.assets[0]);
+      setImage((previous) => {
+        if (previous?.uri.startsWith('blob:')) URL.revokeObjectURL(previous.uri);
+        return prepared;
+      });
+      setUploadedPath(undefined); setResult(null);
+    }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Image preparation failed.'); }
   }
 
