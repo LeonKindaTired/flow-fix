@@ -1,7 +1,8 @@
 :root {
   color-scheme: dark;
-  --bg: #0A0A0A; --surface: #111111; --raised: #181818; --border: #262626;
-  --text: #EDEDED; --text-strong: #FFFFFF; --muted: #8A8A8A; --disabled: #4A4A4A;
-  --secondary-border: #333333; --urgent: #E8503A; --focus: #FFFFFF; --attribution-bg: rgba(10, 10, 10, .94);
-  --radius-card: 10px; --radius-button: 8px;
+  --bg: #151412; --surface: #1D1B18; --raised: #262420; --border: #36332D; --border-strong: #4A463E;
+  --text: #E6E1D4; --text-strong: #F4F0E4; --muted: #9A9486; --disabled: #5C584E;
+  --accent: #E2B33C; --accent-ink: #1A1710; --accent-dim: rgba(226, 179, 60, .16); --attribution-bg: rgba(21, 20, 18, .94);
+  --band-low: #7E9A82; --band-medium: #C9B27A; --band-high: #E59A3A; --band-urgent: #E5533D;
+  --radius: 6px; --heading-font: 'Barlow Condensed', system-ui, sans-serif; --body-font: 'Barlow', system-ui, sans-serif;
 }

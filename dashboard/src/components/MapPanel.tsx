@@ -5,8 +5,8 @@ declare global { interface Window { L?: any } }
 function cssToken(name: string) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function markerStyle(report: PublicReport) {
   const band = report.priority_band ?? 'low';
-  const sizes: Record<string, number> = { low: 6, medium: 8, high: 10, urgent: 12 };
-  return { radius: sizes[band] ?? 6, color: band === 'urgent' ? cssToken('--urgent') : cssToken('--text-strong'), weight: band === 'urgent' ? 4 : 2, fillColor: band === 'low' ? cssToken('--surface') : cssToken('--text-strong'), fillOpacity: 0.95 };
+  const sizes: Record<string, number> = { low: 6, medium: 7, high: 9, urgent: 11 };
+  return { radius: sizes[band] ?? 6, color: cssToken('--bg'), weight: 2, fillColor: cssToken(`--band-${band}`), fillOpacity: 1 };
 }
 function loadLeaflet(): Promise<any> { if (window.L) return Promise.resolve(window.L); return new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; script.onload = () => window.L ? resolve(window.L) : reject(new Error('Leaflet did not load.')); script.onerror = () => reject(new Error('Map library could not load.')); document.head.appendChild(script); const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css); }); }
 export default function MapPanel({ reports, selectedId, onSelect }: { reports: PublicReport[]; selectedId: string | null; onSelect: (id: string) => void }) {

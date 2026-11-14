@@ -11,7 +11,7 @@ export function PhotoPreview({ image, onReselect }: { image: PreparedImage; onRe
 }
 
 const styles = StyleSheet.create({
-  preview: { gap: 10, padding: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radiusCard },
-  image: { width: '100%', height: 210, borderRadius: 6, backgroundColor: theme.raised },
-  meta: { color: theme.muted, fontSize: 12 }, reselect: { minHeight: 44, justifyContent: 'center' }, reselectText: { color: theme.strong, fontSize: 14, fontWeight: '500' },
+  preview: { gap: 10, padding: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: theme.radius },
+  image: { width: '100%', height: 210, borderRadius: theme.radius, backgroundColor: theme.raised },
+  meta: { color: theme.muted, fontSize: 12, fontFamily: theme.bodyFont }, reselect: { minHeight: 44, justifyContent: 'center' }, reselectText: { color: theme.text, fontSize: 14, fontWeight: '500', fontFamily: theme.bodyFont },
 });
