@@ -64,7 +64,7 @@ const handler = createReportHandler({
     return result.data;
   },
   async vision(bytes, mimeType) { return analyzeImage(bytes, mimeType); },
-  async geocode(latitude, longitude) { return reverseGeocode(latitude, longitude, createSupabaseGeocodeCache(service as never)); },
+  async geocode(latitude, longitude, accuracyM) { return reverseGeocode(latitude, longitude, createSupabaseGeocodeCache(service as never), { accuracyM }); },
   async nearby(input) { return findNearbyReport(service, input); },
   async corroborate(input) { return addReportCorroboration(service, input); },
 }, {

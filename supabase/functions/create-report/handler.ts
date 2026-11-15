@@ -20,7 +20,7 @@ export type CreateReportDeps = {
   updateReport(id: string, fields: Record<string, unknown>): Promise<void>;
   getReport(id: string): Promise<ExistingReport | null>;
   vision(bytes: ArrayBuffer, mimeType: string): Promise<VisionOutput>;
-  geocode(latitude: number, longitude: number): Promise<GeocodeResult>;
+  geocode(latitude: number, longitude: number, accuracyM?: number): Promise<GeocodeResult>;
   nearby(input: { latitude: number; longitude: number; radiusM: number; damageType: string; excludeId: string }): Promise<NearbyCandidate | null>;
   corroborate(input: { originalReportId: string; corroboratingReportId: string; reporterId: string; enabled: boolean }): Promise<CorroborationResult>;
 };
@@ -91,7 +91,7 @@ export function createReportHandler(deps: CreateReportDeps, config: { allowedOri
         try {
           [vision, geocode] = await Promise.all([
             deps.vision(metadata.bytes, metadata.mimeType),
-            deps.geocode(input.latitude, input.longitude).catch(() => ({ cacheKey: '', addressLabel: null, roadType: 'unknown', source: 'fallback' as const, status: 'failed' as const, errorCode: 'GEOCODE_PROVIDER_ERROR' as const })),
+            deps.geocode(input.latitude, input.longitude, input.accuracy_m).catch(() => ({ cacheKey: '', addressLabel: null, roadType: 'unknown', source: 'fallback' as const, status: 'failed' as const, errorCode: 'GEOCODE_PROVIDER_ERROR' as const })),
           ]);
         } catch (error) {
           const code = error instanceof Error && 'code' in error ? String((error as { code: unknown }).code) : 'VISION_FAILED';

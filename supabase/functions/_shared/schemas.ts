@@ -32,6 +32,7 @@ export type CreateReportRequest = {
   image_path: string;
   latitude: number;
   longitude: number;
+  accuracy_m?: number;
   location_source: 'gps';
   damage_type?: typeof damageTypes[number];
   severity?: number;
@@ -54,7 +55,9 @@ export const createReportRequestSchema = {
     const location_source = locationSourceSchema.parse(value.location_source);
     const damage_type = value.damage_type === undefined ? undefined : damageTypeSchema.parse(value.damage_type);
     const severity = value.severity === undefined ? undefined : integerBetween(value.severity, 'severity', 1, 5);
-    return { image_path: value.image_path, latitude, longitude, location_source, damage_type, severity };
+    const accuracy_m = value.accuracy_m === undefined ? undefined : finiteNumber(value.accuracy_m, 'accuracy_m');
+    if (accuracy_m !== undefined && (accuracy_m < 0 || accuracy_m > 5000)) throw new Error('accuracy_m is out of range.');
+    return { image_path: value.image_path, latitude, longitude, accuracy_m, location_source, damage_type, severity };
   },
 };
 

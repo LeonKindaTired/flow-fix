@@ -17,6 +17,8 @@ export type ReportResult = {
   corroboration_count: number;
   needs_human_review: boolean;
   duplicate_of?: string;
+  geocode_status?: 'ok' | 'cached' | 'failed';
+  geocode_error?: string | null;
 };
 
 export class ReportClientError extends Error {
@@ -97,7 +99,7 @@ export async function submitReport(image: PreparedImage, coordinates: Coordinate
     const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/create-report`, {
       method: 'POST',
       headers: { apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '', Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_path: imagePath, latitude: coordinates.latitude, longitude: coordinates.longitude, location_source: 'gps' }),
+      body: JSON.stringify({ image_path: imagePath, latitude: coordinates.latitude, longitude: coordinates.longitude, accuracy_m: coordinates.accuracy, location_source: 'gps' }),
     });
     const payload = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } & Partial<ReportResult>;
     if (!response.ok || payload.error) {
@@ -108,7 +110,7 @@ export async function submitReport(image: PreparedImage, coordinates: Coordinate
     const own: any = await supabase.from('reports').select('id,status,damage_type,severity,confidence,road_type,address_label,priority_score,priority_band,corroboration_count,needs_human_review,duplicate_of').eq('id', payload.report_id).single();
     if (own.error || !own.data) throw new ReportClientError('DATABASE_READ_ERROR', `Report was created but could not be read back: ${own.error?.message ?? 'no row returned'}`, imagePath);
     const ownData = own.data as unknown as ReportResult;
-    return { ...ownData, report_id: ownData.report_id ?? payload.report_id, imagePath };
+    return { ...ownData, report_id: ownData.report_id ?? payload.report_id, geocode_status: payload.geocode_status, geocode_error: payload.geocode_error ?? null, imagePath };
   } catch (error) {
     if (error instanceof ReportClientError) throw error;
     throw new ReportClientError('REQUEST_ERROR', `Could not reach the report service: ${detail(error)}`, imagePath);
